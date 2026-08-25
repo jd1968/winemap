@@ -1,0 +1,30 @@
+{
+  "name": "winemap",
+  "version": "1.0.0",
+  "description": "Interactive world map of wine regions and famous wines",
+  "main": "server/index.js",
+  "scripts": {
+    "db:init": "sh scripts/init-postgres.sh",
+    "db:start": "sh scripts/start-postgres.sh",
+    "db:stop": "sh scripts/stop-postgres.sh",
+    "db:create": "node scripts/createDatabase.js",
+    "db:migrate": "node scripts/migrate.js",
+    "db:seed": "node scripts/seed.js",
+    "db:setup": "npm run db:create && npm run db:migrate && npm run db:seed",
+    "server": "node server/index.js",
+    "client": "cd client && npm start",
+    "dev": "npm run db:start && concurrently \"npm run server\" \"npm run client\"",
+    "install-all": "npm install && cd client && npm install"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^17.4.2",
+    "express": "^4.18.2",
+    "multer": "^2.2.0",
+    "openai": "^7.5.0",
+    "pg": "^8.23.0"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
