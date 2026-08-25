@@ -11,6 +11,8 @@
 }
 
 .app-shell {
+  height: 100vh;
+  height: 100dvh;
   min-height: 100vh;
   min-height: 100dvh;
   display: grid;
@@ -28,6 +30,7 @@
 }
 
 .sidebar {
+  height: 100%;
   min-height: 0;
   padding: 28px;
   display: flex;
@@ -131,6 +134,7 @@
 }
 
 .region-list {
+  flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
   display: grid;
@@ -270,6 +274,7 @@
 
 .map-stage {
   position: relative;
+  height: 100%;
   min-height: 0;
   min-height: 100vh;
   min-height: 100dvh;
