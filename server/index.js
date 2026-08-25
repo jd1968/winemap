@@ -40,10 +40,11 @@ dotenv.config({ path: path.resolve(__dirname, '../.env'), quiet: true });
 
 const app = express();
 const PORT = process.env.PORT || 5001;
-const HOST = process.env.HOST || '127.0.0.1';
+const HOST = process.env.HOST || '0.0.0.0';
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-5.6';
 const OPENAI_IMAGE_MODEL = process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1';
 const projectRoot = path.resolve(__dirname, '..');
+const clientBuildDir = path.join(projectRoot, 'client', 'build');
 const uploadsRoot = path.join(projectRoot, 'uploads');
 const tastingUploadsDir = path.join(uploadsRoot, 'tastings');
 const wineUploadsDir = path.join(uploadsRoot, 'wines');
@@ -351,6 +352,10 @@ const fastAddUpload = multer({
 app.use(cors());
 app.use(express.json());
 app.use('/uploads', express.static(uploadsRoot));
+
+if (fs.existsSync(clientBuildDir)) {
+  app.use(express.static(clientBuildDir));
+}
 
 app.get('/api/health', async (req, res) => {
   try {
@@ -1309,6 +1314,17 @@ app.delete('/api/regions/:slug/wines/:wineId', async (req, res) => {
     res.status(500).json({ error: 'Could not delete wine' });
   }
 });
+
+if (fs.existsSync(clientBuildDir)) {
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/')) {
+      next();
+      return;
+    }
+
+    res.sendFile(path.join(clientBuildDir, 'index.html'));
+  });
+}
 
 async function startServer() {
   try {

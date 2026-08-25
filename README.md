@@ -10,6 +10,16 @@ A React + Node app for exploring notable wine regions around the world on an int
 - Region details with wines, grapes, styles, and notes
 - AI-assisted wine style notes generation using the OpenAI API
 
+## Recommended setup
+
+For hosted environments such as Railway, use a hosted Postgres database such as Supabase and set:
+
+```bash
+DATABASE_URL=postgresql://...
+```
+
+The app will use `DATABASE_URL` when present. The local Postgres scripts are only for local development.
+
 ## Before you push to GitHub
 
 - Keep `.env` out of version control and commit only `.env.example`
@@ -33,25 +43,47 @@ For Supabase or any hosted Postgres, prefer setting just:
 DATABASE_URL=postgresql://...
 ```
 
-## Local database setup
+## Local database setup only
+
+These commands are only for running a self-managed Postgres instance on your own machine.
 
 Run these once:
 
 ```bash
-npm run db:init
-npm run db:start
-npm run db:setup
+npm run db:local:init
+npm run db:local:start
+npm run db:local:setup
 ```
 
 That initializes a self-contained local Postgres data directory in `.pgdata`, starts PostgreSQL on `127.0.0.1:5433`, creates the `winemap` database, and creates the schema. Content is expected to live in PostgreSQL directly.
 
-## Run the app
+## Run the app with hosted Postgres
+
+If `DATABASE_URL` points to Supabase or another hosted Postgres:
+
+```bash
+npm run dev:hosted-db
+```
+
+## Run the app with local Postgres
 
 ```bash
 npm run dev
 ```
 
 The React app runs on `http://localhost:3000` and proxies API calls to the Node server on `http://localhost:5001`.
+
+## Deploy on Railway
+
+For Railway:
+
+- connect the GitHub repo as the service source
+- set `DATABASE_URL` to your hosted Postgres connection string
+- set `OPENAI_API_KEY`
+- optionally set `OPENAI_MODEL` and `OPENAI_IMAGE_MODEL`
+- use `/api/health` as the healthcheck path
+
+If Supabase direct connection fails in Railway with an IPv6 network error such as `ENETUNREACH`, switch `DATABASE_URL` to the Supabase session pooler connection string on port `5432`.
 
 ## OpenAI setup
 
@@ -68,10 +100,11 @@ The prompt templates are stored server-side in `server/aiPrompts.js`.
 ## Helpful commands
 
 ```bash
-npm run db:start
-npm run db:stop
+npm run db:local:start
+npm run db:local:stop
 npm run db:migrate
 npm run db:seed
+npm run dev:hosted-db
 ```
 
 ## API
