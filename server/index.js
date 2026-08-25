@@ -7,6 +7,13 @@ const multer = require('multer');
 const OpenAI = require('openai');
 const { query } = require('./db');
 const {
+  createSafeFilenameBase,
+  getMimeTypeForExtension,
+  storeImageBuffer,
+  readImageAsset,
+  readImageUrlAsDataUrl
+} = require('./storage');
+const {
   buildWineStyleNotesPrompt,
   buildWineNotesPrompt,
   buildWineImagePrompt,
@@ -46,31 +53,11 @@ const OPENAI_IMAGE_MODEL = process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1';
 const projectRoot = path.resolve(__dirname, '..');
 const clientBuildDir = path.join(projectRoot, 'client', 'build');
 const uploadsRoot = path.join(projectRoot, 'uploads');
-const tastingUploadsDir = path.join(uploadsRoot, 'tastings');
-const wineUploadsDir = path.join(uploadsRoot, 'wines');
 const FAST_ADD_MAX_IMAGES = 8;
 let openaiClient = null;
 
-fs.mkdirSync(tastingUploadsDir, { recursive: true });
-fs.mkdirSync(wineUploadsDir, { recursive: true });
-
-function createStorage(destinationDir) {
-  return multer.diskStorage({
-    destination: (req, file, callback) => {
-      callback(null, destinationDir);
-    },
-    filename: (req, file, callback) => {
-      const extension = path.extname(file.originalname || '').toLowerCase();
-      const safeBase = path.basename(file.originalname || 'image', extension)
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-|-$/g, '')
-        .slice(0, 48) || 'image';
-
-      callback(null, `${Date.now()}-${safeBase}${extension || '.jpg'}`);
-    }
-  });
-}
+fs.mkdirSync(path.join(uploadsRoot, 'tastings'), { recursive: true });
+fs.mkdirSync(path.join(uploadsRoot, 'wines'), { recursive: true });
 
 function normalizeRating(value) {
   const parsed = Number.parseInt(value, 10);
@@ -96,19 +83,16 @@ function getOpenAIClient() {
   return openaiClient;
 }
 
-function createSafeFilenameBase(value, fallback = 'image') {
-  return String(value || fallback)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-    .slice(0, 48) || fallback;
-}
-
 async function persistGeneratedWineImage(wineName, imageBase64) {
-  const filename = `${Date.now()}-${createSafeFilenameBase(wineName, 'wine')}.png`;
-  const filePath = path.join(wineUploadsDir, filename);
-  await fs.promises.writeFile(filePath, Buffer.from(imageBase64, 'base64'));
-  return `/uploads/wines/${filename}`;
+  const storedImage = await storeImageBuffer({
+    buffer: Buffer.from(imageBase64, 'base64'),
+    folder: 'wines',
+    originalName: `${createSafeFilenameBase(wineName, 'wine')}.png`,
+    contentType: 'image/png',
+    fallbackBase: 'wine'
+  });
+
+  return storedImage.url;
 }
 
 function parseJsonObjectFromText(text) {
@@ -133,56 +117,23 @@ function normalizeNameForMatch(value) {
     .trim();
 }
 
-function buildUploadFilePath(uploadUrl) {
-  const value = String(uploadUrl || '').trim();
-
-  if (!value.startsWith('/uploads/')) {
-    return null;
-  }
-
-  return path.join(projectRoot, value.replace(/^\/+/, ''));
-}
-
-function getMimeTypeForExtension(extension) {
-  switch (String(extension || '').toLowerCase()) {
-    case '.png':
-      return 'image/png';
-    case '.webp':
-      return 'image/webp';
-    case '.gif':
-      return 'image/gif';
-    case '.heic':
-      return 'image/heic';
-    case '.heif':
-      return 'image/heif';
-    default:
-      return 'image/jpeg';
-  }
-}
-
 async function buildImageInputsFromUploadUrls(imageUrls) {
   const uniqueUrls = Array.from(new Set((imageUrls || []).map((entry) => String(entry || '').trim()).filter(Boolean)));
   const inputs = [];
 
   for (const imageUrl of uniqueUrls.slice(0, FAST_ADD_MAX_IMAGES)) {
-    const filePath = buildUploadFilePath(imageUrl);
+    const dataUrl = await readImageUrlAsDataUrl(imageUrl);
 
-    if (!filePath) {
+    if (!dataUrl) {
       continue;
     }
-
-    const fileBuffer = await fs.promises.readFile(filePath);
     inputs.push({
       type: 'input_image',
-      image_url: `data:${getMimeTypeForExtension(path.extname(filePath))};base64,${fileBuffer.toString('base64')}`
+      image_url: dataUrl
     });
   }
 
   return inputs;
-}
-
-function buildDataUrlFromBuffer(fileBuffer, filePath) {
-  return `data:${getMimeTypeForExtension(path.extname(filePath))};base64,${fileBuffer.toString('base64')}`;
 }
 
 function findMatchingRegion(regions, regionName, countryName) {
@@ -271,8 +222,13 @@ function sanitizeStringList(values, limit = 8) {
   ).slice(0, limit);
 }
 
-async function describeReferenceWineImage(client, filePath, wine) {
-  const fileBuffer = await fs.promises.readFile(filePath);
+async function describeReferenceWineImage(client, imageUrl, wine) {
+  const dataUrl = await readImageUrlAsDataUrl(imageUrl);
+
+  if (!dataUrl) {
+    return '';
+  }
+
   const response = await client.responses.create({
     model: OPENAI_MODEL,
     input: [
@@ -290,7 +246,7 @@ async function describeReferenceWineImage(client, filePath, wine) {
           },
           {
             type: 'input_image',
-            image_url: buildDataUrlFromBuffer(fileBuffer, filePath),
+            image_url: dataUrl,
             detail: 'high'
           }
         ]
@@ -302,7 +258,7 @@ async function describeReferenceWineImage(client, filePath, wine) {
 }
 
 const upload = multer({
-  storage: createStorage(tastingUploadsDir),
+  storage: multer.memoryStorage(),
   limits: {
     fileSize: 10 * 1024 * 1024,
     files: 8
@@ -318,7 +274,7 @@ const upload = multer({
 });
 
 const wineImageUpload = multer({
-  storage: createStorage(wineUploadsDir),
+  storage: multer.memoryStorage(),
   limits: {
     fileSize: 10 * 1024 * 1024,
     files: 1
@@ -334,7 +290,7 @@ const wineImageUpload = multer({
 });
 
 const fastAddUpload = multer({
-  storage: createStorage(tastingUploadsDir),
+  storage: multer.memoryStorage(),
   limits: {
     fileSize: 10 * 1024 * 1024,
     files: FAST_ADD_MAX_IMAGES
@@ -550,9 +506,21 @@ app.post('/api/fast-add/analyze', fastAddUpload.array('images', FAST_ADD_MAX_IMA
       return;
     }
 
-    const imageUrls = files.map((file) => `/uploads/tastings/${file.filename}`);
+    const storedImages = await Promise.all(
+      files.map((file) => storeImageBuffer({
+        buffer: file.buffer,
+        folder: 'tastings',
+        originalName: file.originalname,
+        contentType: file.mimetype,
+        fallbackBase: 'tasting'
+      }))
+    );
+    const imageUrls = storedImages.map((entry) => entry.url);
     const regions = await listRegions();
-    const imageInputs = await buildImageInputsFromUploadUrls(imageUrls);
+    const imageInputs = files.map((file) => ({
+      type: 'input_image',
+      image_url: `data:${file.mimetype || 'image/jpeg'};base64,${file.buffer.toString('base64')}`
+    }));
 
     if (!imageInputs.length) {
       res.status(400).json({ error: 'Could not read the uploaded photos.' });
@@ -1083,18 +1051,18 @@ app.post('/api/regions/:slug/wines/:wineId/generate-image', async (req, res) => 
     }
 
     const linkedWineStyle = wineStyles.find((entry) => String(entry.id) === String(wine.styleId || ''));
-    const existingImagePath = wine.imageUrl ? buildUploadFilePath(wine.imageUrl) : null;
+    const existingImageAsset = wine.imageUrl ? await readImageAsset(wine.imageUrl) : null;
     let imageResponse;
 
-    if (existingImagePath) {
+    if (existingImageAsset) {
       try {
         imageResponse = await client.images.edit({
           model: OPENAI_IMAGE_MODEL,
           image: await OpenAI.toFile(
-            await fs.promises.readFile(existingImagePath),
-            path.basename(existingImagePath),
+            existingImageAsset.buffer,
+            existingImageAsset.fileName,
             {
-              type: getMimeTypeForExtension(path.extname(existingImagePath))
+              type: existingImageAsset.mimeType
             }
           ),
           prompt: buildWineImagePrompt({
@@ -1107,7 +1075,7 @@ app.post('/api/regions/:slug/wines/:wineId/generate-image', async (req, res) => 
         });
       } catch (editError) {
         console.error(`Could not edit reference image for wine ${req.params.wineId}, falling back to guided generation`, editError);
-        const referenceImageNotes = await describeReferenceWineImage(client, existingImagePath, wine);
+        const referenceImageNotes = await describeReferenceWineImage(client, wine.imageUrl, wine);
         imageResponse = await client.images.generate({
           model: OPENAI_IMAGE_MODEL,
           prompt: buildWineImagePrompt({
@@ -1217,10 +1185,22 @@ app.post('/api/regions/:slug/wines/:wineId/tastings', async (req, res) => {
 app.post('/api/uploads/images', upload.array('images', 8), async (req, res) => {
   try {
     const files = Array.isArray(req.files) ? req.files : [];
-    const images = files.map((file) => ({
-      url: `/uploads/tastings/${file.filename}`,
-      name: file.originalname
-    }));
+    const images = await Promise.all(
+      files.map(async (file) => {
+        const storedImage = await storeImageBuffer({
+          buffer: file.buffer,
+          folder: 'tastings',
+          originalName: file.originalname,
+          contentType: file.mimetype,
+          fallbackBase: 'tasting'
+        });
+
+        return {
+          url: storedImage.url,
+          name: file.originalname
+        };
+      })
+    );
 
     res.status(201).json({ images });
   } catch (error) {
@@ -1236,9 +1216,17 @@ app.post('/api/uploads/wine-image', wineImageUpload.single('image'), async (req,
       return;
     }
 
+    const storedImage = await storeImageBuffer({
+      buffer: req.file.buffer,
+      folder: 'wines',
+      originalName: req.file.originalname,
+      contentType: req.file.mimetype,
+      fallbackBase: 'wine'
+    });
+
     res.status(201).json({
       image: {
-        url: `/uploads/wines/${req.file.filename}`,
+        url: storedImage.url,
         name: req.file.originalname
       }
     });

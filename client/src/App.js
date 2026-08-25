@@ -354,7 +354,11 @@ function buildUploadUrl(imageUrl) {
     return imageUrl;
   }
 
-  return `${window.location.protocol}//${window.location.hostname}:5001${imageUrl}`;
+  if (window.location.port === '3000') {
+    return `${window.location.protocol}//${window.location.hostname}:5001${imageUrl}`;
+  }
+
+  return `${window.location.origin}${imageUrl}`;
 }
 
 function summarizeNotes(value, limit = 50) {

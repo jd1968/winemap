@@ -16,9 +16,12 @@ For hosted environments such as Railway, use a hosted Postgres database such as 
 
 ```bash
 DATABASE_URL=postgresql://...
+SUPABASE_URL=https://your-project-ref.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+SUPABASE_STORAGE_BUCKET=wine-atlas-media
 ```
 
-The app will use `DATABASE_URL` when present. The local Postgres scripts are only for local development.
+The app will use `DATABASE_URL` when present. If `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are also set, image uploads and generated wine images will be stored in Supabase Storage instead of the local filesystem. The local Postgres scripts are only for local development.
 
 ## Before you push to GitHub
 
@@ -41,6 +44,14 @@ For Supabase or any hosted Postgres, prefer setting just:
 
 ```bash
 DATABASE_URL=postgresql://...
+```
+
+To use Supabase Storage for uploaded and AI-generated images, also set:
+
+```bash
+SUPABASE_URL=https://your-project-ref.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+SUPABASE_STORAGE_BUCKET=wine-atlas-media
 ```
 
 ## Local database setup only
@@ -79,6 +90,9 @@ For Railway:
 
 - connect the GitHub repo as the service source
 - set `DATABASE_URL` to your hosted Postgres connection string
+- set `SUPABASE_URL`
+- set `SUPABASE_SERVICE_ROLE_KEY`
+- optionally set `SUPABASE_STORAGE_BUCKET`
 - set `OPENAI_API_KEY`
 - optionally set `OPENAI_MODEL` and `OPENAI_IMAGE_MODEL`
 - use `/api/health` as the healthcheck path
@@ -105,7 +119,11 @@ npm run db:local:stop
 npm run db:migrate
 npm run db:seed
 npm run dev:hosted-db
+npm run storage:migrate -- --dry-run
+npm run storage:migrate
 ```
+
+`npm run storage:migrate` uploads any existing local `/uploads/...` wine and tasting images to Supabase Storage and rewrites the database URLs. Run the `--dry-run` form first if you want to preview what will be changed.
 
 ## API
 
@@ -118,4 +136,5 @@ npm run dev:hosted-db
 - The basemap and MapLibre assets are loaded from public CDNs at runtime.
 - The application now reads region data from PostgreSQL at runtime.
 - The app no longer depends on `data/wineRegions.json`; PostgreSQL is the only active data source.
-- Uploaded images are local filesystem assets by default and are intentionally not committed.
+- Uploaded images use Supabase Storage when `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are configured.
+- Without those storage variables, the app falls back to local filesystem uploads for local development.
